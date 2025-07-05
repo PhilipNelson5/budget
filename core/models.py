@@ -126,7 +126,7 @@ class DatabaseManager:
                     description TEXT NOT NULL,
                     institution TEXT NOT NULL,
                     account TEXT NOT NULL,
-                    category TEXT NOT NULL,
+                    category TEXT,
                     is_hidden INTEGER NOT NULL,
                     is_split INTEGER NOT NULL DEFAULT 0
                 )
@@ -157,7 +157,7 @@ class DatabaseManager:
                 """
                 INSERT INTO parent_transactions
                 (id, date, description, institution, account, category, is_hidden, is_split, amount)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     transaction_id,

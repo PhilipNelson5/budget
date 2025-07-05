@@ -234,6 +234,7 @@ def import_csv(csv_file, db_path, interactive, auto):
             children = None
             if isinstance(result, list):  # Add children
                 transaction.is_split = True
+                transaction.category = None
                 children = result
             elif isinstance(result, str):  # Change category
                 transaction.category = result
