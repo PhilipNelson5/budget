@@ -232,16 +232,17 @@ def import_csv(csv_file, db_path, interactive, auto):
             result = interactive_split(transaction)
 
             children = None
-            if isinstance(result, list):  # Add children
-                transaction.is_split = True
-                transaction.category = None
-                children = result
+            if isinstance(result, list):
+                if len(result) != 0:  # Add children
+                    transaction.is_split = True
+                    transaction.category = None
+                    children = result
+                else:  # Keep original category
+                    pass
             elif isinstance(result, str):  # Change category
                 transaction.category = result
             elif result is None:  # Empty list means skip
                 transaction.is_hidden = True
-            else:  # Keep original category
-                pass
 
             # Import transaction with interactive processing
             transaction_id = importer.import_transaction(transaction)
@@ -406,6 +407,92 @@ def init_db(db_path):
     """Initialize the database."""
     DatabaseManager(db_path)
     click.echo(f"Database initialized at {db_path}")
+
+
+@cli.command()
+@click.argument("month", type=str)
+@click.argument("output_file", type=click.Path())
+@click.option(
+    "--db",
+    "db_path",
+    default="transactions.db",
+    help="Database file path (default: transactions.db)",
+)
+@click.option("--include-hidden", is_flag=True, help="Include hidden transactions")
+def export_month(month, output_file, db_path, include_hidden):
+    """Export transactions for a given month as CSV.
+
+    Split transactions are replaced by their child transactions.
+    """
+    import csv
+    from datetime import datetime
+
+    # Validate month format
+    try:
+        datetime.strptime(month, "%Y-%m")
+    except ValueError:
+        click.echo("Error: Month must be in YYYY-MM format (e.g., 2025-06)")
+        return
+
+    db_manager = DatabaseManager(db_path)
+
+    # Get all transactions for the month
+    all_transactions = db_manager.get_all_parent_transactions(
+        include_hidden=include_hidden
+    )
+
+    # Filter transactions for the specified month
+    month_transactions = []
+    for transaction in all_transactions:
+        transaction_date = datetime.strptime(transaction["date"], "%m/%d/%Y")
+        if transaction_date.strftime("%Y-%m") == month:
+            month_transactions.append(transaction)
+
+    if not month_transactions:
+        click.echo(f"No transactions found for {month}")
+        return
+
+    # Prepare CSV data
+    csv_rows = []
+    for transaction in month_transactions:
+        # Check if transaction is split
+        if transaction["is_split"]:
+            # Get child transactions and export them instead
+            children = db_manager.get_child_transactions(transaction["id"])
+            for child in children:
+                csv_rows.append(
+                    {
+                        "Date": child["date"],
+                        "Amount": f"${child['amount']:.2f}",
+                        "Description": child["description"],
+                        "Category": child["category"],
+                    }
+                )
+        else:
+            # Export the parent transaction
+            csv_rows.append(
+                {
+                    "Date": transaction["date"],
+                    "Amount": f"${transaction['amount']:.2f}",
+                    "Description": transaction["description"],
+                    "Category": transaction["category"],
+                }
+            )
+
+    # Write CSV file
+    with open(output_file, "w", newline="", encoding="utf-8") as csvfile:
+        fieldnames = ["Date", "Amount", "Description", "Category"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+        writer.writeheader()
+        for row in csv_rows:
+            writer.writerow(row)
+
+    click.echo(f"Exported {len(csv_rows)} transactions to {output_file}")
+    click.echo(f"Original transactions: {len(month_transactions)}")
+    click.echo(
+        f"Split transactions replaced with {len(csv_rows) - len(month_transactions) + 1} child transactions"
+    )
 
 
 if __name__ == "__main__":

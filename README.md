@@ -14,8 +14,8 @@ python cli.py
 
 - Transaction import from Fidelity Full View csv export
 - Transaction splitting
+- Transaction export to csv by month
 
 ## Future tools
 
-- Transaction export to csv
 - Machine learning for better automatic categorization
