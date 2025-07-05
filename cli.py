@@ -3,9 +3,53 @@
 CLI interface for the transaction importer.
 """
 
+import re
+from decimal import Decimal, InvalidOperation
+
 import click
-from core.models import DatabaseManager
-from core.importer import TransactionImporter, ChildTransactionCreator
+
+from core.importer import TransactionImporter
+from core.models import ChildTransaction, DatabaseManager, Transaction
+
+
+def evaluate_expression(expression: str) -> Decimal:
+    """
+    Evaluate a simple arithmetic expression containing numbers, +, -, *, and /.
+
+    Args:
+        expression: String like "1+2.3" or "10-3.5+2*3/4"
+
+    Returns:
+        Decimal result of the arithmetic expression
+
+    Raises:
+        ValueError: If the expression is invalid or contains unsupported operations
+    """
+    # Remove all whitespace
+    expression = expression.replace(" ", "").strip()
+
+    # Validate expression contains only allowed characters
+    if not re.match(r"^[\d+*./-]+[\d.]$", expression):
+        raise ValueError(
+            "Expression must contain only numbers, ., +, -, *, /, and must be a valid arithmetic expression"
+        )
+
+    # Split on the operators while preserving them
+    parts = re.split(r"([+*/-])", expression)
+
+    if not parts or parts[0] == "":
+        raise ValueError("Invalid expression")
+
+    # Wrap the values in "Decimal({value})"
+    new_parts = []
+    for part in parts:
+        if len(part) > 0 and part[0] not in {"+", "-", "*", "/"}:
+            new_parts.append(f"Decimal('{part}')")
+        else:
+            new_parts.append(part)
+
+    expression = " ".join(new_parts)
+    return Decimal(eval(expression))
 
 
 def interactive_split(transaction):
@@ -33,13 +77,84 @@ def interactive_split(transaction):
         ).strip()
 
         if choice == "s":
-            return ChildTransactionCreator._create_child_transactions(transaction)
+            return create_child_transactions(transaction)
         elif choice == "":
             return []  # No children, keep original category
         elif choice == "x":
             return None  # None means ignore / hide transaction
         else:
             return choice  # new category
+
+
+def create_child_transactions(
+    transaction: Transaction, parent_id: str = None
+) -> list[ChildTransaction] | None:
+    """Helper method to create child transactions interactively."""
+    children = []
+    sign = -1 if transaction.amount < 0 else 1
+    original_amount = abs(transaction.amount)
+    remaining_amount = original_amount
+
+    type = "expense" if transaction.amount < 0 else "income"
+    print(f"\nSplitting {type}: {transaction.description}")
+    print(f"Total amount: ${abs(transaction.amount)}")
+
+    while remaining_amount > Decimal(0):
+        print(f"\nRemaining amount: ${remaining_amount}")
+
+        # Get amount for this child
+        while True:
+            try:
+                amount_str = input(
+                    "Enter amount for this split (or empty for the rest): "
+                ).strip()
+                if amount_str == "":
+                    amount = remaining_amount
+                else:
+                    # Try to evaluate as arithmetic expression first
+                    try:
+                        amount = evaluate_expression(amount_str)
+                    except ValueError as e:
+                        print(e)
+                        continue
+
+                if amount > abs(remaining_amount):
+                    print(
+                        f"Amount cannot exceed remaining amount (${abs(remaining_amount)})."
+                    )
+                    continue
+
+                break  # amount is good
+            except (ValueError, InvalidOperation):
+                print(
+                    "Invalid amount. Please enter a valid number or expression (e.g., '1+2.3')."
+                )
+
+        # Get category for this child
+        category = input("Enter category for this split: ").strip()
+        if not category:
+            category = transaction.category
+
+        # Create child transaction (parent_id will be set later)
+        child = ChildTransaction(
+            parent_id or "",  # Use empty string if parent_id is None
+            amount * sign,
+            category,
+            transaction.description,
+            transaction.date,
+        )
+        children.append(child)
+
+        remaining_amount -= amount
+
+        if abs(remaining_amount) <= Decimal("0.01"):
+            break
+
+    # If no children were created, return None to keep original
+    if not children:
+        return None
+
+    return children
 
 
 @click.group()
