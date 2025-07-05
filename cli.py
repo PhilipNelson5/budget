@@ -8,6 +8,40 @@ from core.models import DatabaseManager
 from core.importer import TransactionImporter, ChildTransactionCreator
 
 
+def interactive_split(transaction):
+    """
+    Interactively handle transaction processing.
+
+    Args:
+        transaction: The transaction to process
+        parent_id: The UUID of the parent transaction (optional, can be set later)
+
+    Returns:
+        List of child transactions, None to keep original, empty list to skip, or string for new category
+    """
+    print(f"\nTransaction: {transaction.description}")
+    print(f"Amount: {transaction.amount}")
+    print(f"Original Category: {transaction.category}")
+
+    while True:
+        choice = input(
+            "\nEnter a new category or:\n"
+            "s - Split\n"
+            "x - Ignore / Hide\n"
+            "[Return] - Keep the category\n"
+            "Choice: "
+        ).strip()
+
+        if choice == "s":
+            return ChildTransactionCreator._create_child_transactions(transaction)
+        elif choice == "":
+            return []  # No children, keep original category
+        elif choice == "x":
+            return None  # None means ignore / hide transaction
+        else:
+            return choice  # new category
+
+
 @click.group()
 def cli():
     """Transaction Importer CLI - Import and manage financial transactions."""
@@ -52,25 +86,22 @@ def import_csv(csv_file, db_path, interactive, auto):
     if auto:
         click.echo("Importing transactions automatically...")
         imported_count = 0
-        duplicate_count = 0
+        skipped_count = 0
 
         for transaction in transactions:
             if importer.db_manager.transaction_exists(transaction):
-                duplicate_count += 1
+                skipped_count += 1
             else:
                 parent_id = importer.import_transaction(transaction)
                 if parent_id:
                     imported_count += 1
 
         click.echo(
-            f"Successfully imported {imported_count} transactions, {duplicate_count} duplicates skipped"
+            f"Successfully imported {imported_count} transactions, {skipped_count} duplicates skipped"
         )
 
     elif interactive:
         click.echo("Importing transactions interactively...")
-        imported_count = 0
-        skipped_count = 0
-        duplicate_count = 0
 
         for i, transaction in enumerate(transactions, 1):
             click.echo(f"\n[{i}/{len(transactions)}] Processing transaction...")
@@ -80,42 +111,35 @@ def import_csv(csv_file, db_path, interactive, auto):
                 click.echo(
                     f"{transaction.date} {transaction.amount} {transaction.description} Already imported"
                 )
-                duplicate_count += 1
+                skipped_count += 1
                 continue
 
-            # Import parent transaction first
-            parent_id = importer.import_transaction(transaction)
+            # Get user input for splitting/changing category if callback is provided
+            result = interactive_split(transaction)
 
-            # Handle child transaction creation
-            children = ChildTransactionCreator.interactive_split(transaction, parent_id)
+            children = None
+            if isinstance(result, list):  # Add children
+                transaction.is_split = True
+                children = result
+            elif isinstance(result, str):  # Change category
+                transaction.category = result
+            elif result is None:  # Empty list means skip
+                transaction.is_hidden = True
+            else:  # Keep original category
+                pass
 
-            if children is None:
-                # Keep original category, no children
-                imported_count += 1
-                click.echo("✓ Transaction imported with original category")
-            elif children == []:
-                importer.db_manager.mark_transaction_as_hidden(parent_id)
-                click.echo("✗ Transaction marked as hidden")
-                skipped_count += 1
-            elif isinstance(children, str):
-                new_category = children
-                importer.db_manager.update_transaction_category(parent_id, new_category)
-                click.echo(f"✓ Transaction category changed to: {new_category}")
-                imported_count += 1
-            else:
-                # Add children
+            # Import transaction with interactive processing
+            transaction_id = importer.import_transaction(transaction, interactive_split)
+
+            # Add children if any were created
+            if children:
                 for child in children:
-                    importer.db_manager.insert_child_transaction(child)
-                # Mark the parent transaction as split
-                importer.db_manager.mark_transaction_as_split(parent_id)
-                imported_count += 1
-                click.echo(
-                    f"✓ Transaction split into {len(children)} child transactions"
-                )
+                    # Set the parent_id now that we have it
+                    child.parent_id = transaction_id
+                    importer.import_child_transaction(child)
 
-        click.echo(
-            f"\nImport complete: {imported_count} imported, {skipped_count} hidden, {duplicate_count} duplicates"
-        )
+            # Transaction was imported successfully
+            click.echo("✓ Transaction imported")
 
 
 @cli.command()

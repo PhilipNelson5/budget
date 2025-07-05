@@ -5,7 +5,6 @@ Core importer logic for processing CSV transactions.
 import csv
 import re
 from decimal import Decimal, InvalidOperation
-from typing import List, Optional, Callable
 from .models import Transaction, ChildTransaction, DatabaseManager
 
 
@@ -55,7 +54,7 @@ class TransactionImporter:
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
 
-    def load_transactions_from_csv(self, csv_path: str) -> List[Transaction]:
+    def load_transactions_from_csv(self, csv_path: str) -> list[Transaction]:
         """Load transactions from CSV file, filtering out pending transactions."""
         transactions = []
 
@@ -72,105 +71,45 @@ class TransactionImporter:
 
         return transactions
 
-    def import_transaction(
-        self, transaction: Transaction, child_creator: Optional[Callable] = None
-    ) -> str | None:
+    def import_transaction(self, transaction: Transaction) -> str:
         """
-        Import a single transaction and optionally create child transactions.
+        Import a single transaction.
 
         Args:
             transaction: The transaction to import
-            child_creator: Optional callback function to create child transactions.
-                          Should return a list of ChildTransaction objects or None.
 
         Returns:
-            The UUID of the imported parent transaction, or None if duplicate
+            The UUID of the imported parent transaction, or the existing UUID if duplicate
         """
         # Check if transaction already exists
         if self.db_manager.transaction_exists(transaction):
-            return None
+            return self.db_manager.get_duplicate_transaction(transaction)["id"]
 
         # Insert the transaction
         transaction_id = self.db_manager.insert_parent_transaction(transaction)
 
-        # Create child transactions if callback is provided
-        if child_creator:
-            children = child_creator(transaction, transaction_id)
-            if children:
-                for child in children:
-                    self.db_manager.insert_child_transaction(child)
-                # Mark the parent transaction as split
-                self.db_manager.mark_transaction_as_split(transaction_id)
-
         return transaction_id
 
-    def import_transactions(
-        self, transactions: List[Transaction], child_creator: Optional[Callable] = None
-    ) -> List[str]:
+    def import_child_transaction(self, transaction: ChildTransaction) -> str:
         """
-        Import multiple transactions.
+        Import a single transaction.
 
         Args:
-            transactions: List of transactions to import
-            child_creator: Optional callback function to create child transactions
+            transaction: The transaction to import
 
         Returns:
-            List of parent transaction UUIDs
+            The UUID of the imported parent transaction, or the existing UUID if duplicate
         """
-        parent_ids = []
-
-        for transaction in transactions:
-            parent_id = self.import_transaction(transaction, child_creator)
-            parent_ids.append(parent_id)
-
-        return parent_ids
+        return self.db_manager.insert_child_transaction(transaction)
 
 
 class ChildTransactionCreator:
-    """Helper class for creating child transactions with interactive prompts."""
-
-    @staticmethod
-    def interactive_split(
-        transaction: Transaction, parent_id: str
-    ) -> list[ChildTransaction] | None | str:
-        """
-        Interactively split a transaction into child transactions.
-
-        Args:
-            transaction: The parent transaction
-            parent_id: The UUID of the parent transaction
-
-        Returns:
-            List of child transactions, None to keep original, empty list to skip, or "CHANGE_CATEGORY" to change category
-        """
-        print(f"\nTransaction: {transaction.description}")
-        print(f"Amount: {transaction.amount}")
-        print(f"Original Category: {transaction.category}")
-
-        while True:
-            choice = input(
-                "\nEnter a new category or:\n"
-                "s - Split\n"
-                "x - Ignore / Hide\n"
-                "[Return] - Keep the category\n"
-                "Choice: "
-            ).strip()
-
-            if choice == "s":
-                return ChildTransactionCreator._create_child_transactions(
-                    transaction, parent_id
-                )
-            elif choice == "":
-                return None  # No children, keep original
-            elif choice == "x":
-                return []  # Empty list means skip
-            else:
-                return choice  # new category
+    """Helper class for creating child transactions."""
 
     @staticmethod
     def _create_child_transactions(
-        transaction: Transaction, parent_id: str
-    ) -> List[ChildTransaction] | None:
+        transaction: Transaction, parent_id: str = None
+    ) -> list[ChildTransaction] | None:
         """Helper method to create child transactions interactively."""
         children = []
         sign = -1 if transaction.amount < 0 else 1
@@ -181,9 +120,7 @@ class ChildTransactionCreator:
         print(f"\nSplitting {type}: {transaction.description}")
         print(f"Total amount: ${abs(transaction.amount)}")
 
-        while abs(remaining_amount) > Decimal(
-            "0.01"
-        ):  # Use Decimal for precise comparison
+        while remaining_amount > Decimal(0):
             print(f"\nRemaining amount: ${remaining_amount}")
 
             # Get amount for this child
@@ -219,9 +156,9 @@ class ChildTransactionCreator:
             if not category:
                 category = transaction.category
 
-            # Create child transaction
+            # Create child transaction (parent_id will be set later)
             child = ChildTransaction(
-                parent_id,
+                parent_id or "",  # Use empty string if parent_id is None
                 amount * sign,
                 category,
                 transaction.description,
