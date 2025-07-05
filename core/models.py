@@ -78,13 +78,13 @@ class Transaction:
         clean_amount = amount_str.replace("$", "").replace("(", "").replace(")", "")
 
         # Convert to Decimal
-        ammount = Decimal(clean_amount)
+        amount = Decimal(clean_amount)
 
         # If the original had parentheses, it was negative
         if "(" in amount_str and ")" in amount_str:
-            ammount = -ammount
+            amount = -amount
 
-        return ammount
+        return amount
 
 
 class ChildTransaction:
@@ -156,7 +156,7 @@ class DatabaseManager:
             cursor.execute(
                 """
                 INSERT INTO parent_transactions
-                (id, date, description, institution, account, category, is_hidden, amount)
+                (id, date, description, institution, account, category, is_hidden, is_split, amount)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
@@ -167,6 +167,7 @@ class DatabaseManager:
                     transaction.account,
                     transaction.category,
                     int(transaction.is_hidden),
+                    int(transaction.is_split),
                     str(transaction.amount),
                 ),
             )
@@ -321,46 +322,52 @@ class DatabaseManager:
             count = cursor.fetchone()[0]
             return count > 0
 
-    def get_duplicate_transaction(self, transaction: Transaction) -> dict | None:
+    def get_transaction(self, transaction: Transaction | str) -> dict | None:
         """Get the existing transaction if it exists.
 
         Args:
-            transaction: The transaction to check
+            transaction: The transaction or transaction id to get
 
         Returns:
             dict | None: The existing transaction data or None if not found
         """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, date, description, institution, account, category, is_hidden, amount, created_at
-                FROM parent_transactions
-                WHERE date = ? AND description = ? AND institution = ?
-                AND account = ? AND amount = ?
-            """,
-                (
-                    transaction.date,
-                    transaction.description,
-                    transaction.institution,
-                    transaction.account,
-                    str(transaction.amount),
-                ),
+            columns = (
+                "id,date,amount,description,institution,account",
+                "category",
+                "is_hidden",
+                "is_split",
             )
+            if isinstance(transaction, Transaction):
+                cursor.execute(
+                    f"""
+                    SELECT {",".join(columns)}
+                    FROM parent_transactions
+                    WHERE date = ? AND description = ? AND institution = ?
+                    AND account = ? AND amount = ?
+                """,
+                    (
+                        transaction.date,
+                        transaction.description,
+                        transaction.institution,
+                        transaction.account,
+                        str(transaction.amount),
+                    ),
+                )
+            else:
+                cursor.execute(
+                    f"""
+                    SELECT {",".join(columns)}
+                    FROM parent_transactions
+                    WHERE id = ?
+                """,
+                    (transaction,),
+                )
 
             row = cursor.fetchone()
             if row:
-                return {
-                    "id": row[0],
-                    "date": row[1],
-                    "description": row[2],
-                    "institution": row[3],
-                    "account": row[4],
-                    "category": row[5],
-                    "is_hidden": bool(row[6]),
-                    "amount": Decimal(row[7]),
-                    "created_at": row[8],
-                }
+                return {col: value for col, value in zip(columns, row)}
             return None
 
     def mark_transaction_as_split(self, transaction_id: str) -> None:

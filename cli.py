@@ -226,7 +226,6 @@ def import_csv(csv_file, db_path, interactive, auto):
                 click.echo(
                     f"{transaction.date} {transaction.amount} {transaction.description} Already imported"
                 )
-                skipped_count += 1
                 continue
 
             # Get user input for splitting/changing category if callback is provided
@@ -244,7 +243,7 @@ def import_csv(csv_file, db_path, interactive, auto):
                 pass
 
             # Import transaction with interactive processing
-            transaction_id = importer.import_transaction(transaction, interactive_split)
+            transaction_id = importer.import_transaction(transaction)
 
             # Add children if any were created
             if children:
@@ -339,11 +338,7 @@ def show_transaction(transaction_id, db_path):
         click.echo(f"\nChild Transactions ({len(children)}):")
         click.echo("-" * 40)
         for i, child in enumerate(children, 1):
-            click.echo(f"{i}. Amount: ${child['amount']:.2f}")
-            click.echo(f"   Category: {child['category']}")
-            click.echo(f"   Description: {child['description']}")
-            click.echo(f"   Date: {child['date']}")
-            click.echo()
+            click.echo(f"{i}. ${child['amount']:.2f}\t{child['category']}")
     else:
         click.echo("\nNo child transactions")
 

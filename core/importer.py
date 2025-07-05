@@ -42,7 +42,7 @@ class TransactionImporter:
         """
         # Check if transaction already exists
         if self.db_manager.transaction_exists(transaction):
-            return self.db_manager.get_duplicate_transaction(transaction)["id"]
+            return self.db_manager.get_transaction(transaction)["id"]
 
         # Insert the transaction
         transaction_id = self.db_manager.insert_parent_transaction(transaction)
