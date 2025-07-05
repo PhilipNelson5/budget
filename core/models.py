@@ -2,31 +2,24 @@
 Database models for transaction importer.
 """
 
+from dataclasses import dataclass
 import sqlite3
 import uuid
 from decimal import Decimal
 
 
+@dataclass
 class Transaction:
     """Represents a transaction from the CSV file."""
 
-    def __init__(
-        self,
-        date: str,
-        description: str,
-        institution: str,
-        account: str,
-        category: str,
-        is_hidden: bool,
-        amount: Decimal,
-    ):
-        self.date = date
-        self.description = description
-        self.institution = institution
-        self.account = account
-        self.category = category
-        self.is_hidden = is_hidden
-        self.amount = amount
+    date: str
+    amount: Decimal
+    description: str
+    institution: str
+    account: str
+    category: str | None
+    is_hidden: bool
+    is_split: bool
 
     @classmethod
     def from_csv_row(cls, row: dict) -> "Transaction":
@@ -40,12 +33,13 @@ class Transaction:
         """
         return cls(
             date=row["Date"],
+            amount=cls._parse_amount(row["Amount"]),
             description=row["Description"],
             institution=row["Institution"],
             account=row["Account"],
             category=row["Category"],
-            is_hidden=cls._parse_boolean(row["Is Hidden"]),
-            amount=cls._parse_amount(row["Amount"]),
+            is_hidden=False,
+            is_split=False,
         )
 
     @staticmethod
@@ -58,7 +52,7 @@ class Transaction:
         Returns:
             bool: Parsed boolean value
         """
-        return value.lower() in ("yes", "true", "1")
+        return value.lower() in {"yes", "true", "1"}
 
     @staticmethod
     def _parse_amount(amount_str: str) -> Decimal:
@@ -74,10 +68,8 @@ class Transaction:
         Returns:
             Decimal: The parsed amount as a Decimal
         """
-        # Remove dollar sign and parentheses
         clean_amount = amount_str.replace("$", "").replace("(", "").replace(")", "")
 
-        # Convert to Decimal
         amount = Decimal(clean_amount)
 
         # If the original had parentheses, it was negative
@@ -87,22 +79,15 @@ class Transaction:
         return amount
 
 
+@dataclass
 class ChildTransaction:
     """Represents a child transaction that can be split from a parent transaction."""
 
-    def __init__(
-        self,
-        parent_id: str,
-        amount: Decimal,
-        category: str,
-        description: str,
-        date: str,
-    ):
-        self.parent_id = parent_id
-        self.amount = amount
-        self.category = category
-        self.description = description
-        self.date = date
+    parent_id: str
+    amount: Decimal
+    category: str
+    description: str
+    date: str
 
 
 class DatabaseManager:
