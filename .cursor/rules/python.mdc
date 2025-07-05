@@ -1,0 +1,12 @@
+---
+description:
+globs: *.py
+alwaysApply: false
+---
+Be sure to ALWAYS add typing annotations to each python function or class. Be sure to include return types or `None` for void functions. Add descriptive docstrings to all python functions and classes. Please use the pep257 convention. Update existing docstrings as necessary.
+
+When working with monetary amounts, ALWAYS use Decimal from the decimal module for precision. Never use float for financial calculations. Store amounts as REAL in SQLite but convert to/from Decimal when reading/writing to maintain precision.
+
+All database operations should be encapsulated in the DatabaseManager class. Never write raw SQL in CLI or other business logic. Use parameterized queries to prevent SQL injection. Always use context managers (with statements) for database connections.
+
+Keep business logic in the core/ directory. CLI should only handle user interaction and delegate to core modules. Use dependency injection for database connections. Maintain separation between data models, business logic, and presentation layers.
